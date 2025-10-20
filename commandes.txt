@@ -1,7 +1,7 @@
 Audit système - Commandes utilisées
 
 Nom de la machine, distribution, version du noyau
-- uname -a, lsb_release -a, hostnamectl
+- uname -a, lsb_release -a, uname -r
 
 Uptime et charge moyenne 
 - uptime, top, cat /proc/loadavg
