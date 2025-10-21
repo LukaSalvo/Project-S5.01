@@ -52,8 +52,12 @@ IO.readlines("#{BASE_PATH}/etc/passwd").each do |line|
   end
 end
 
-# Utilisateurs connectés
-utilisateurs_co = `who 2>/dev/null`.strip
+
+if HOST_MODE
+  utilisateurs_co = `chroot #{BASE_PATH} /usr/bin/who -u 2>/dev/null`.lines.map { |l| l.split[0] }.uniq
+else
+  utilisateurs_co = `who -u 2>/dev/null`.lines.map { |l| l.split[0] }.uniq
+end
 
 # Espace disque
 espaceDisque = `df -h`.strip
@@ -101,7 +105,7 @@ audit = {
   "Swap" => swap_dispo_utilise,
   "Interfaces réseau" => inter_reseau,
   "Utilisateurs humains (uid ⩾1000)" => utilisateur_humains,
-  "Utilisateurs connectés" => utilisateurs_co.split("\n"),
+  "Utilisateurs connectés" => utilisateurs_co,
   "Espace disque" => espaceDisque,
   "Processus les plus consommateurs de CPU et de mémoire" => processus_consomateurs,
   "Processus les plus consommateurs de trafic réseau" => processus_consomateurs_traffic_reseau,
@@ -187,7 +191,7 @@ section_titre("UTILISATEURS HUMAINS (UID >= 1000)")
 utilisateur_humains.each { |u| puts "  - #{u}" }
 
 section_titre("UTILISATEURS CONNECTÉS")
-utilisateurs_co.each_line { |ligne| puts "  #{ligne.chomp}" }
+utilisateurs_co.each { |ligne| puts "  - #{ligne}" }
 
 section_titre("ESPACE DISQUE PAR PARTITION")
 espaceDisque.each_line do |ligne|
