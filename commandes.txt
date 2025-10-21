@@ -1,7 +1,11 @@
+Salvo Luka / Amin Belalia / Candido Della Mora Léo
+
+
 Audit système - Commandes utilisées
 
 Nom de la machine, distribution, version du noyau
 - uname -a, lsb_release -a, uname -r
+
 
 Uptime et charge moyenne 
 - uptime, top, cat /proc/loadavg
