@@ -204,7 +204,7 @@ section_titre("PROCESSUS CONSOMMATEURS (CPU/MEM)")
 processus_consomateurs.each do |p|
   cmd = p[:cmd].length > 80 ? p[:cmd][0..77] + "..." : p[:cmd]
   cpu_color = p[:cpu] > 50 ? ROUGE : (p[:cpu] > 20 ? JAUNE : RESET)
-  mem_color = p[:mem] > 10 ? ROUGE : (p[:mem] > 5 ? JAUNE : RESET)s
+  mem_color = p[:mem] > 10 ? ROUGE : (p[:mem] > 5 ? JAUNE : RESET)
   puts "  - #{p[:user].ljust(12)} PID: #{p[:pid].to_s.rjust(6)} │ CPU: #{cpu_color}#{p[:cpu]}%#{RESET} │ MEM: #{mem_color}#{p[:mem]}%#{RESET}"
   puts "    └─ #{GRIS}#{cmd}#{RESET}"
 end
