@@ -32,6 +32,7 @@ inter_reseau = Dir.children("/sys/class/net").map do |iface|
   ip = `ip -4 addr show #{iface} | grep inet | awk '{print $2}'`.strip
   { interface: iface, mac: mac, ip: ip }
 end.compact
+
 utilisateurs_co = `who`.strip
 utilisateur_humains = []
 IO.readlines("/etc/passwd").each do |line|
@@ -43,6 +44,8 @@ end
 
 # Espace disque et processus
 espaceDisque = `df -h`.strip
+
+# Processus consommateurs de CPU et de mémoire
 processus_consomateurs = []
 `ps aux --sort=-%cpu | head -n 11`.lines.drop(1).each do |line|
   if line =~ regex_processus_consommateurs
@@ -62,9 +65,11 @@ end
 
 # Statut des services clés
 status_service_cle = {
-  "sshd" => `systemctl is-active sshd`.strip,
-  "cron" => `systemctl is-active cron`.strip,
-  "docker" => `systemctl is-active docker`.strip
+  "sshd" => `systemctl is-active sshd 2>/dev/null`.strip,
+  "cron" => `systemctl is-active cron 2>/dev/null`.strip,
+  "docker" => `systemctl is-active docker 2>/dev/null`.strip,
+  "apache2" => `systemctl is-active apache2 2>/dev/null`.strip,
+  "nginx" => `systemctl is-active nginx 2>/dev/null`.strip
 }
 
 # liste des résultats de l'audit
@@ -95,6 +100,28 @@ if options[:json]
 
 else
 
+  # Couleurs pour le terminal
+  RESET = "\e[0m"
+  GRAS = "\e[1m"
+  BLEU = "\e[36m"
+  GRIS = "\e[90m"
+  VERT = "\e[32m"
+  ROUGE = "\e[31m"
+  JAUNE = "\e[33m"
+
+  def section_titre(titre)
+    puts "\n#{BLEU}#{GRAS}> #{titre}#{RESET}"
+    puts "  #{GRIS}#{"─" * 56}#{RESET}"
+  end
+
+  def statut_couleur(statut)
+    case statut
+    when /active|actif/i then VERT
+    when /inactive|inactif/i then ROUGE
+    else GRIS
+    end
+  end
+
   puts "\n"
   puts "  ██████╗  █████╗  ██████╗███████╗"
   puts "  ██╔══██╗██╔══██╗██╔════╝██╔════╝"
@@ -109,61 +136,116 @@ else
   puts "  " + "─" * 58
   puts "\n"
 
-  # Couleurs pour le terminal
-  RESET = "\e[0m"
-  GRAS = "\e[1m"
-  BLEU = "\e[36m"
-  GRIS = "\e[90m"
-
-  def section_titre(titre)
-    puts "\n#{BLEU}#{GRAS}> #{titre}#{RESET}"
-    puts "  #{GRIS}#{"─" * 56}#{RESET}"
-  end
-
   section_titre("INFORMATIONS GÉNÉRALES")
   puts "  Distribution      : #{distrib}"
   puts "  Version noyau     : #{v_noyau}"
   puts "  Uptime            : #{uptime}"
-  puts "  Charge moyenne    : #{m_charge}"
+
+  # Coloration de la charge selon le seuil
+  charge_values = [loadavg_raw[0].to_f, loadavg_raw[1].to_f, loadavg_raw[2].to_f]
+  charge_color = charge_values.max > 4 ? ROUGE : (charge_values.max > 2 ? JAUNE : VERT)
+  puts "  Charge moyenne    : #{charge_color}#{m_charge}#{RESET}"
 
   section_titre("MÉMOIRE ET SWAP")
-  memoire.each_line { |ligne| puts "  #{ligne.chomp}" }
+  memoire_lines = memoire.split("\n")
 
-  section_titre("UTILISATEURS")
-  utilisateur_humains.each { |u| puts "  - #{u}" }
+  # Afficher l'en-tête simplifié
+  puts "  #{GRIS}               Total       Utilisé     Disponible#{RESET}"
+  puts "  #{GRIS}#{"─" * 56}#{RESET}"
+
+  # Afficher Mémoire RAM
+  if memoire_lines[1]
+    mem_data = memoire_lines[1].split
+    mem_pct = (mem_data[2].to_f / mem_data[1].to_f * 100) rescue 0
+    mem_color = mem_pct > 80 ? ROUGE : (mem_pct > 60 ? JAUNE : VERT)
+    puts "  #{mem_color}RAM#{RESET}       : #{mem_data[1].rjust(8)}  │  #{mem_data[2].rjust(8)}  │  #{mem_data[6].rjust(10)}"
+  end
+
+  # Afficher Swap
+  if memoire_lines[2]
+    swap_data = memoire_lines[2].split
+    swap_total = swap_data[1]
+    swap_utilise = swap_data[2]
+    swap_color = swap_utilise.to_f > 0 ? JAUNE : VERT
+    puts "  #{swap_color}Swap#{RESET}      : #{swap_total.rjust(8)}  │  #{swap_utilise.rjust(8)}  │  #{swap_data[3].rjust(10)}"
+  end
+
+  section_titre("INTERFACES RÉSEAU")
+  if inter_reseau.empty?
+    puts "  #{GRIS}[Aucune interface réseau détectée]#{RESET}"
+  else
+    inter_reseau.each do |iface|
+      ip_status = iface[:ip].empty? ? ROUGE : VERT
+      puts "  - #{iface[:interface].ljust(10)} │ MAC: #{iface[:mac]} │ IP: #{ip_status}#{iface[:ip].empty? ? 'Non configurée' : iface[:ip]}#{RESET}"
+    end
+  end
+
+  section_titre("UTILISATEURS HUMAINS (UID >= 1000)")
+  if utilisateur_humains.empty?
+    puts "  #{GRIS}[Aucun utilisateur humain trouvé]#{RESET}"
+  else
+    utilisateur_humains.each { |u| puts "  - #{u}" }
+  end
 
   section_titre("UTILISATEURS CONNECTÉS")
   if utilisateurs_co.empty?
-    puts "  [Aucun utilisateur connecté]"
+    puts "  #{GRIS}[Aucun utilisateur connecté]#{RESET}"
   else
     utilisateurs_co.each_line { |ligne| puts "  #{ligne.chomp}" }
   end
 
   section_titre("ESPACE DISQUE PAR PARTITION")
-  espaceDisque.each_line { |ligne| puts "  #{ligne.chomp}" }
+  espaceDisque.each_line.with_index do |ligne, idx|
+    if idx == 0
+      # En-tête
+      puts "  #{ligne.chomp}"
+      puts "  #{GRIS}#{"─" * 56}#{RESET}"
+    else
+      # Extraire le pourcentage d'utilisation
+      if ligne =~ /(\d+)%/
+        usage = $1.to_i
+        color = usage > 80 ? ROUGE : (usage > 60 ? JAUNE : RESET)
+        puts "  #{color}#{ligne.chomp}#{RESET}"
+      else
+        puts "  #{ligne.chomp}"
+      end
+    end
+  end
 
   section_titre("PROCESSUS CONSOMMATEURS (CPU/MEM)")
-  processus_consomateurs.each do |p|
-    cmd = p[:cmd].length > 80 ? p[:cmd][0..77] + "..." : p[:cmd]
+  if processus_consomateurs.empty?
+    puts "  #{GRIS}[Aucun processus détecté]#{RESET}"
+  else
+    processus_consomateurs.each do |p|
+      cmd = p[:cmd].length > 80 ? p[:cmd][0..77] + "..." : p[:cmd]
+      cpu_color = p[:cpu] > 50 ? ROUGE : (p[:cpu] > 20 ? JAUNE : RESET)
+      mem_color = p[:mem] > 10 ? ROUGE : (p[:mem] > 5 ? JAUNE : RESET)
 
-    puts "  - #{p[:user].ljust(12)} PID: #{p[:pid].to_s.rjust(6)}  │  CPU: #{p[:cpu].to_s.rjust(5)}%  │  MEM: #{p[:mem].to_s.rjust(5)}%"
-    puts "    └─ #{cmd}"
-    puts ""
+      puts "  - #{p[:user].ljust(12)} PID: #{p[:pid].to_s.rjust(6)}  │  CPU: #{cpu_color}#{p[:cpu].to_s.rjust(5)}%#{RESET}  │  MEM: #{mem_color}#{p[:mem].to_s.rjust(5)}%#{RESET}"
+      puts "    └─ #{GRIS}#{cmd}#{RESET}"
+      puts ""
+    end
   end
 
   section_titre("PROCESSUS CONSOMMATEURS (RÉSEAU)")
-  processus_consomateurs_traffic_reseau.each do |p|
-    puts "  - #{p[:process].ljust(20)} PID:#{p[:pid].to_s.ljust(6)} [#{p[:etat]}]"
-    puts "    #{p[:source]} → #{p[:destination]}"
+  if processus_consomateurs_traffic_reseau.empty?
+    puts "  #{GRIS}[Aucun processus consommateur de trafic réseau détecté]#{RESET}"
+  else
+    processus_consomateurs_traffic_reseau.each do |p|
+      etat_color = p[:etat] == "ESTAB" ? VERT : GRIS
+      puts "  - #{p[:process].ljust(20)} PID: #{p[:pid].to_s.rjust(6)}  #{etat_color}[#{p[:etat]}]#{RESET}"
+      puts "    └─ #{GRIS}#{p[:source]} → #{p[:destination]}#{RESET}"
+    end
   end
 
   section_titre("SERVICES CLÉS")
   status_service_cle.each do |s, st|
-    statut = st.downcase.include?("actif") || st.downcase.include?("active") ? "[OK]" : "[--]"
-    puts "  #{statut} #{s.ljust(25)} : #{st}"
+    couleur = statut_couleur(st)
+    statut = st.downcase.include?("actif") || st.downcase.include?("active") ? "#{VERT}[OK]#{RESET}" : "#{ROUGE}[--]#{RESET}"
+    puts "  #{statut} #{s.ljust(25)} : #{couleur}#{st}#{RESET}"
   end
 
   puts "\n" + "  " + "═" * 70
-  puts "    Audit terminé avec succès, merci de faire confiance a DACS AUDIT"
+  puts "    Audit terminé avec succès, merci de faire confiance à DACS AUDIT"
   puts "  " + "═" * 70 + "\n"
 end
