@@ -87,10 +87,12 @@ audit = {
 
 # Export ou affichage des résultats dans le json ou dans le terminal
 if options[:json]
+
   File.open(options[:json], "w") do |f|
     f.write(JSON.pretty_generate(audit))
   end
   puts "Résultats sauvegardés dans #{options[:json]}"
+
 else
 
   puts "\n"
@@ -107,9 +109,15 @@ else
   puts "  " + "─" * 58
   puts "\n"
 
+  # Couleurs pour le terminal
+  RESET = "\e[0m"
+  GRAS = "\e[1m"
+  BLEU = "\e[36m"
+  GRIS = "\e[90m"
+
   def section_titre(titre)
-    puts "\n> #{titre}"
-    puts "  " + "─" * 56
+    puts "\n#{BLEU}#{GRAS}> #{titre}#{RESET}"
+    puts "  #{GRIS}#{"─" * 56}#{RESET}"
   end
 
   section_titre("INFORMATIONS GÉNÉRALES")
@@ -118,12 +126,10 @@ else
   puts "  Uptime            : #{uptime}"
   puts "  Charge moyenne    : #{m_charge}"
 
-  section_titre("INTERFACES RÉSEAU")
-  inter_reseau.each do |iface|
-    puts "  - #{iface[:interface].ljust(15)} MAC: #{iface[:mac].ljust(17)}  IP: #{iface[:ip]}"
-  end
+  section_titre("MÉMOIRE ET SWAP")
+  memoire.each_line { |ligne| puts "  #{ligne.chomp}" }
 
-  section_titre("UTILISATEURS HUMAINS (UID >= 1000)")
+  section_titre("UTILISATEURS")
   utilisateur_humains.each { |u| puts "  - #{u}" }
 
   section_titre("UTILISATEURS CONNECTÉS")
@@ -138,8 +144,11 @@ else
 
   section_titre("PROCESSUS CONSOMMATEURS (CPU/MEM)")
   processus_consomateurs.each do |p|
-    puts "  - #{p[:user].ljust(10)} PID:#{p[:pid].to_s.ljust(6)} CPU:#{p[:cpu]}%  MEM:#{p[:mem]}%"
-    puts "    #{p[:cmd]}"
+    cmd = p[:cmd].length > 80 ? p[:cmd][0..77] + "..." : p[:cmd]
+
+    puts "  - #{p[:user].ljust(12)} PID: #{p[:pid].to_s.rjust(6)}  │  CPU: #{p[:cpu].to_s.rjust(5)}%  │  MEM: #{p[:mem].to_s.rjust(5)}%"
+    puts "    └─ #{cmd}"
+    puts ""
   end
 
   section_titre("PROCESSUS CONSOMMATEURS (RÉSEAU)")
@@ -154,7 +163,7 @@ else
     puts "  #{statut} #{s.ljust(25)} : #{st}"
   end
 
-  puts "\n" + "  " + "═" * 58
+  puts "\n" + "  " + "═" * 70
   puts "    Audit terminé avec succès, merci de faire confiance a DACS AUDIT"
-  puts "  " + "═" * 58 + "\n"
+  puts "  " + "═" * 70 + "\n"
 end
