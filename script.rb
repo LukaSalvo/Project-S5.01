@@ -30,12 +30,16 @@ m_charge = "1 min: #{loadavg_raw[0]}, 5 min: #{loadavg_raw[1]}, 15 min: #{loadav
 memoire = `free -h`.strip
 swap_dispo_utilise = `free -h | grep -i swap`.strip
 
-# Informations réseau et utilisateurs
-inter_reseau = Dir.children("#{BASE_PATH}/sys/class/net").map do |iface|
+# Infos système
+os_info = File.read("#{BASE_PATH}/etc/os-release") rescue "Inconnu"
+uptime = File.read("#{BASE_PATH}/proc/uptime").split[0].to_f / 3600 rescue 0.0
+
+# Interfaces réseau
+interfaces = Dir.children("#{BASE_PATH}/sys/class/net").map do |iface|
   next if iface == "lo"
   mac = File.read("#{BASE_PATH}/sys/class/net/#{iface}/address").strip rescue "N/A"
   ip = `ip -4 addr show #{iface} | grep inet | awk '{print $2}'`.strip
-  { interface: iface, mac: mac, ip: ip }
+  { iface: iface, mac: mac, ip: ip }
 end.compact
 
 utilisateurs_co = `who`.strip
