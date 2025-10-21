@@ -1,7 +1,0 @@
-docker run --rm \
-  -v /etc:/host/etc:ro \
-  -v /proc:/host/proc:ro \
-  -v /sys:/host/sys:ro \
-  -v /:/host:ro \
-  -e HOST_MODE=1 \
-  dacs-audit
