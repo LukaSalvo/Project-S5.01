@@ -34,12 +34,21 @@ swap_dispo_utilise = `free -h | grep -i swap`.strip
 os_info = File.read("#{BASE_PATH}/etc/os-release") rescue "Inconnu"
 uptime = File.read("#{BASE_PATH}/proc/uptime").split[0].to_f / 3600 rescue 0.0
 
-# Interfaces réseau
-interfaces = Dir.children("#{BASE_PATH}/sys/class/net").map do |iface|
+# Détection des interfaces réseau sur le système hôte
+BASE_PATH = ENV["HOST_MODE"] ? "/host" : ""  # Si lancé depuis Docker
+
+inter_reseau = Dir.children("#{BASE_PATH}/sys/class/net").map do |iface|
   next if iface == "lo"
+
   mac = File.read("#{BASE_PATH}/sys/class/net/#{iface}/address").strip rescue "N/A"
-  ip = `ip -4 addr show #{iface} | grep inet | awk '{print $2}'`.strip
-  { iface: iface, mac: mac, ip: ip }
+
+  # Lecture de l’adresse IP depuis /proc/net/fib_trie (plus fiable sans "ip")
+  ip_data = File.read("#{BASE_PATH}/proc/net/fib_trie") rescue ""
+  ip_match = ip_data.scan(/32 host (\d+\.\d+\.\d+\.\d+)/).flatten.find do |addr|
+    !addr.start_with?("127.")
+  end
+
+  { interface: iface, mac: mac, ip: ip_match || "" }
 end.compact
 
 utilisateurs_co = `who`.strip
