@@ -8,6 +8,11 @@ regex_utilisateur_co =  /^([^:]+):[^:]*:(\d+):\d+:[^:]*:[^:]*:[^:]*$/
 regex_processus_consommateur_traffic_reseau = /(\S+)\s+\S+\s+\S+\s+([\d.:]+)\s+([\d.:]+)\s+users:\(\("([^"]+)",pid=(\d+)/
 regex_processus_consommateurs = /^(\S+)\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+(.*)$/
 
+
+# Détection du mode audit
+HOST_MODE = ENV['HOST_MODE'] == '1'
+BASE_PATH = HOST_MODE ? "/host" : ""
+
 # Options de ligne de commande
 options = {}
 OptionParser.new do |opts|
@@ -26,16 +31,16 @@ memoire = `free -h`.strip
 swap_dispo_utilise = `free -h | grep -i swap`.strip
 
 # Informations réseau et utilisateurs
-inter_reseau = Dir.children("/sys/class/net").map do |iface|
+inter_reseau = Dir.children("#{BASE_PATH}/sys/class/net").map do |iface|
   next if iface == "lo"
-  mac = File.read("/sys/class/net/#{iface}/address").strip rescue "N/A"
+  mac = File.read("#{BASE_PATH}/sys/class/net/#{iface}/address").strip rescue "N/A"
   ip = `ip -4 addr show #{iface} | grep inet | awk '{print $2}'`.strip
   { interface: iface, mac: mac, ip: ip }
 end.compact
 
 utilisateurs_co = `who`.strip
 utilisateur_humains = []
-IO.readlines("/etc/passwd").each do |line|
+IO.readlines("#{BASE_PATH}/etc/passwd").each do |line|
   if line =~ regex_utilisateur_co
     user, uid = $1, $2.to_i
     utilisateur_humains << user if uid >= 1000
