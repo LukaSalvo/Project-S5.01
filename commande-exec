@@ -1,7 +1,0 @@
-docker run --rm -it \
-  --pid=host \
-  --net=host \
-  --privileged \
-  -v /etc/passwd:/etc/passwd:ro \
-  -v /etc/group:/etc/group:ro \
-  dacs-audit
