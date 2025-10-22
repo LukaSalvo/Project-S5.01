@@ -1,8 +1,5 @@
 #!/bin/bash
-# =============================================================
-#  DACS AUDIT - Script Client SSH Docker (mode local)
-#  Auteurs : Amin Belalia, Luka Salvo, Léo Candido Della Mora
-# =============================================================
+
 
 set -euo pipefail
 
