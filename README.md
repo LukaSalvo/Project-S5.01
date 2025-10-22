@@ -97,6 +97,15 @@ cd ~/Documents/BUT_informatique_DACS/3_annee/SAE/Project-S5.01
 
 ---
 
+### Lancer le conteneur : 
+
+```bash 
+docker build -t dacs-audit:latest .
+```
+
+C'est une commande essentielle car elle va lancer le conteneur et donc le build. 
+
+
 ### Audit distant avec affichage direct dans le terminal
 ```bash
 docker run --rm -it --network host \
