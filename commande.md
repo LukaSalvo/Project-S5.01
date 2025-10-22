@@ -1,5 +1,5 @@
 # Audit système – Projet tuteuré (pré-SAÉ)
-**Auteurs :** Amin Belalia, Luka Salvo, Léo Candido  
+**Auteurs :** Amin Belalia, Luka Salvo, Léo Candido Della Mora 
 **BUT Informatique 3A – Parcours DACS**  
 
 ---
