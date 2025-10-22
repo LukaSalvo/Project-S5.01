@@ -5,82 +5,92 @@ require 'optparse'
 
 =begin
     Script d'audit système Linux - DACS AUDIT
-    Collecte d'informations sur le systeme et export au format JSON ou affichage dans le terminal
+    Version SSH compatible : permet un audit local ou distant via SSH
 =end
 
-# Expressions regulieres pour la collecte des informations qu'on a besoin
-regex_utilisateur_co =  /^([^:]+):[^:]*:(\d+):\d+:[^:]*:[^:]*:[^:]*$/
-regex_processus_consommateur_traffic_reseau = /(\S+)\s+\S+\s+\S+\s+([\d.:]+)\s+([\d.:]+)\s+users:\(\("([^"]+)",pid=(\d+)/
-regex_processus_consommateurs = /^(\S+)\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+(.*)$/
-
-# Pour faire un fichier json, lecture des arguments
+# === Options du script ===
 options = {}
 OptionParser.new do |opts|
-  opts.banner = "Usage: ruby audit.rb [options]"
+  opts.banner = "Usage: ruby audit_ssh.rb [options]"
   opts.on("--json FILE", "Export du résultat au format JSON dans FILE") { |file| options[:json] = file }
+  opts.on("--remote-host HOST", "Adresse IP ou nom d'hôte distant à auditer") { |host| options[:remote_host] = host }
+  opts.on("--remote-user USER", "Nom d'utilisateur SSH (défaut: root)") { |user| options[:remote_user] = user }
+  opts.on("--key PATH", "Chemin vers la clé privée SSH") { |key| options[:ssh_key] = key }
 end.parse!
 
-# Liste des commandes systemes collecte des informations
-nom_machine = `hostname`.strip
-distrib = `lsb_release -d 2>/dev/null || cat /etc/*release | head -n 1`.strip.sub(/^Description:\s*/, '')
-v_noyau = `uname -r`.strip
-uptime = `uptime -p`.strip
-loadavg_raw = `cat /proc/loadavg`.strip.split
-m_charge = "1 min: #{loadavg_raw[0]}, 5 min: #{loadavg_raw[1]}, 15 min: #{loadavg_raw[2]}"
-memoire = `free -h`.strip
-swap_dispo_utilise = `free -h | grep -i swap`.strip
-
-# Interfaces reseau et adresses IP
-inter_reseau = Dir.children("/sys/class/net").map do |iface|
-  next if iface == "lo"
-  mac = File.read("/sys/class/net/#{iface}/address").strip rescue "N/A"
-  ip = `ip -4 addr show #{iface} | grep inet | awk '{print $2}'`.strip
-  { interface: iface, mac: mac, ip: ip }
-end.compact
-
-# Utilisateurs humains connectés (uid >= 1000) ainsi si c'ets pas "nobody"
-utilisateurs_co = `who`.strip
-utilisateur_humains = []
-IO.readlines("/etc/passwd").each do |line|
-  if line =~ regex_utilisateur_co
-    user, uid = $1, $2.to_i
-    utilisateur_humains << user if uid >= 1000 && user != "nobody"
+# === Méthode d’exécution (locale ou distante) ===
+def run_cmd(cmd, options)
+  if options[:remote_host]
+    user = options[:remote_user] || "root"
+    key_part = options[:ssh_key] ? "-i #{options[:ssh_key]}" : ""
+    ssh_cmd = "ssh -o StrictHostKeyChecking=no #{key_part} #{user}@#{options[:remote_host]} \"#{cmd}\""
+    return `#{ssh_cmd}`.strip
+  else
+    return `#{cmd}`.strip
   end
 end
 
-# Espace disque par partition
-espaceDisque = `df -h`.strip
+# === Expressions régulières ===
+regex_utilisateur_co = /^([^:]+):[^:]*:(\d+):\d+:[^:]*:[^:]*:[^:]*$/
+regex_processus_consommateur_traffic_reseau = /(\S+)\s+\S+\s+\S+\s+([\d.:]+)\s+([\d.:]+)\s+users:\(\("([^"]+)",pid=(\d+)/
+regex_processus_consommateurs = /^(\S+)\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+(.*)$/
 
-# Processus consommateurs de CPU et de mémoire
+# === Collecte des informations ===
+nom_machine = run_cmd("hostname", options)
+distrib = run_cmd("lsb_release -d 2>/dev/null || cat /etc/*release | head -n 1", options).sub(/^Description:\s*/, '')
+v_noyau = run_cmd("uname -r", options)
+uptime = run_cmd("uptime -p", options)
+loadavg_raw = run_cmd("cat /proc/loadavg", options).split
+m_charge = "1 min: #{loadavg_raw[0]}, 5 min: #{loadavg_raw[1]}, 15 min: #{loadavg_raw[2]}"
+memoire = run_cmd("free -h", options)
+swap_dispo_utilise = run_cmd("free -h | grep -i swap", options)
+
+# === Interfaces réseau ===
+interfaces_raw = run_cmd("ls /sys/class/net", options).split
+inter_reseau = interfaces_raw.map do |iface|
+  next if iface == "lo"
+  mac = run_cmd("cat /sys/class/net/#{iface}/address 2>/dev/null", options)
+  ip = run_cmd("ip -4 addr show #{iface} | grep inet | awk '{print $2}'", options)
+  { interface: iface, mac: mac.empty? ? "N/A" : mac, ip: ip.strip }
+end.compact
+
+# === Utilisateurs humains ===
+passwd_content = run_cmd("cat /etc/passwd", options).split("\n")
+utilisateur_humains = passwd_content.map do |line|
+  if line =~ regex_utilisateur_co
+    user, uid = $1, $2.to_i
+    user if uid >= 1000 && user != "nobody"
+  end
+end.compact
+utilisateurs_co = run_cmd("who", options)
+
+# === Espace disque ===
+espaceDisque = run_cmd("df -h", options)
+
+# === Processus ===
 processus_consomateurs = []
-`ps aux --sort=-%cpu | head -n 11`.lines.drop(1).each do |line|
+run_cmd("ps aux --sort=-%cpu | head -n 11", options).lines.drop(1).each do |line|
   if line =~ regex_processus_consommateurs
     user, pid, cpu, mem, cmd = $1, $2, $3, $4, $5
     processus_consomateurs << { user: user, pid: pid, cpu: cpu.to_f, mem: mem.to_f, cmd: cmd }
   end
 end
 
-# Processus consommateurs de trafic réseau
 processus_consomateurs_traffic_reseau = []
-`ss -tunap | head -n 20`.lines.each do |line|
+run_cmd("ss -tunap | head -n 20", options).lines.each do |line|
   if line =~ regex_processus_consommateur_traffic_reseau
     etat, src, dst, proc_name, pid = $1, $2, $3, $4, $5
     processus_consomateurs_traffic_reseau << { etat: etat, source: src, destination: dst, process: proc_name, pid: pid.to_i }
   end
 end
 
-# Statut des services clés (sshd, cron, docker, apache2, nginx, etc.)
-status_service_cle = {
-  "sshd" => `systemctl is-active sshd 2>/dev/null`.strip,
-  "cron" => `systemctl is-active cron 2>/dev/null`.strip,
-  "docker" => `systemctl is-active docker 2>/dev/null`.strip,
-  "apache2" => `systemctl is-active apache2 2>/dev/null`.strip,
-  "nginx" => `systemctl is-active nginx 2>/dev/null`.strip,
-  "mysql" => `systemctl is-active mysql 2>/dev/null`.strip,
-  "postfix" => `systemctl is-active postfix 2>/dev/null`.strip
-}
+# === Statut des services clés ===
+services = %w[sshd cron docker apache2 nginx mysql postfix]
+status_service_cle = services.map do |srv|
+  [srv, run_cmd("systemctl is-active #{srv} 2>/dev/null", options)]
+end.to_h
 
-# liste des résultats de l'audit dans un hash
+# === Résultats de l’audit ===
 audit = {
   "Nom de la machine" => nom_machine,
   "Distribution" => distrib,
@@ -90,24 +100,20 @@ audit = {
   "Mémoire" => memoire,
   "Swap" => swap_dispo_utilise,
   "Interfaces réseau" => inter_reseau,
-  "Utilisateurs humains (uid ⩾1000)" => utilisateur_humains,
+  "Utilisateurs humains (uid ≥1000)" => utilisateur_humains,
   "Utilisateurs connectés" => utilisateurs_co.split("\n"),
   "Espace disque" => espaceDisque,
-  "Processus les plus consommateurs de CPU et de mémoire" => processus_consomateurs,
-  "Processus les plus consommateurs de trafic réseau" => processus_consomateurs_traffic_reseau,
-  "Présence et statut de certains services clés" => status_service_cle,
+  "Processus consommateurs CPU/MEM" => processus_consomateurs,
+  "Processus consommateurs réseau" => processus_consomateurs_traffic_reseau,
+  "Services clés" => status_service_cle
 }
 
-# Export ou affichage des résultats dans le json ou dans le terminal
+# === Export ou affichage ===
 if options[:json]
-
-  # Export au format JSON
-  File.open(options[:json], "w") do |f|
-    f.write(JSON.pretty_generate(audit))
-  end
+  File.open(options[:json], "w") { |f| f.write(JSON.pretty_generate(audit)) }
   puts "Résultats sauvegardés dans #{options[:json]}"
-
 else
+
 
   # Couleurs pour le terminal
   RESET = "\e[0m"

@@ -1,0 +1,22 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  audit-tool:
+    build: .
+    container_name: dacs-audit
+    volumes:
+      - /:/host:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    privileged: true
+    environment:
+      - HOST_ROOT=/
+    command: ["--json", "/app/audit-result.json"]
+
+  # Conteneur cible pour tester SSH
+  target-server:
+    image: alpine:latest
+    container_name: audit-target
+    command: ["sh", "-c", "apk add --no-cache openssh-server && mkdir /root/.ssh && echo 'ssh-rsa AAAAB3NzaC1yc2E...' > /root/.ssh/authorized_keys && /usr/sbin/sshd -D"]
+    ports:
+      - "2222:22"
