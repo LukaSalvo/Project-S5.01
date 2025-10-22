@@ -123,5 +123,5 @@ L’intégration de Ruby, Docker et SSH a permis de créer une solution conforme
 
 Puis le fichier d'automatisation ainsi que le guide détaillé permet une mise en œuvre **rapide, fiable et accessible** de l’outil sur n’importe quel poste.
 
-Le fichier `config.sh` automatise la configuration complète du client SSH et du conteneur Docker. Et De son côté, le guide `CLIENT_SSH_GUIDE`.md fournit une documentation claire et structurée, permettant à tout utilisateur de **comprendre, installer et exécuter** l’audit en toute autonomie.
+Le fichier `config.sh` automatise la configuration complète du client SSH et du conteneur Docker. Et de son côté, le guide `README`.md fournit une documentation claire et structurée, permettant à tout utilisateur de **comprendre, installer et exécuter** l’audit en toute autonomie.
 
