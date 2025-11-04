@@ -1,14 +1,14 @@
-#Dockerfile de l'agent 
-
-
 FROM ruby:3.2-slim
 
-RUN apt-get update && apt-get install -y --no-install-recommends lsb-release procps iproute2 net-tools systemctl openssh-client && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    lsb-release procps iproute2 net-tools curl && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
 COPY ../agent.rb /app/
+RUN gem install webrick json && chmod +x /app/agent.rb
 
-RUN chmod +x /app/agent.rb
+EXPOSE 9091
 
-EXPOSE 9090 
 CMD ["ruby", "/app/agent.rb"]
