@@ -1,22 +1,57 @@
 version: '3.8'
 
 services:
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: prometheus
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-    ports:
-      - "9090:9090"
-    restart: unless-stopped
 
   agent1:
     build: ./agent
-    container_name: agent1
+    container_name: dacs_agent1
+    hostname: agent1
     ports:
       - "4567:4567"
+    environment:
+      - AGENT_NAME=agent1
+      - AGENT_LOCATION=server-prod-1
     restart: unless-stopped
+    networks:
+      - monitoring
+
+  agent2:
+    build: ./agent
+    container_name: dacs_agent2
+    hostname: agent2
+    ports:
+      - "4568:4567"
+    environment:
+      - AGENT_NAME=agent2
+      - AGENT_LOCATION=server-prod-2
+    restart: unless-stopped
+    networks:
+      - monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: dacs_prometheus
+    hostname: prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    networks:
+      - monitoring
+    depends_on:
+      - agent1
+      - agent2
+
+networks:
+  monitoring:
+    driver: bridge
 
 volumes:
   prometheus_data:
+    driver: local

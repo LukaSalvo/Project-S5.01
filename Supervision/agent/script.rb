@@ -5,13 +5,13 @@ require 'optparse'
 
 =begin
     Script d'audit système Linux - DACS AUDIT
-    Version SSH compatible : permet un audit local ou distant via SSH
+    Version compatible Prometheus : mode agent avec endpoint /metrics
 =end
 
 # === Options du script ===
 options = {}
 OptionParser.new do |opts|
-  opts.banner = "Usage: ruby audit_ssh.rb [options]"
+  opts.banner = "Usage: ruby script.rb [options]"
   opts.on("--json FILE", "Export du résultat au format JSON dans FILE") { |file| options[:json] = file }
   opts.on("--remote-host HOST", "Adresse IP ou nom d'hôte distant à auditer") { |host| options[:remote_host] = host }
   opts.on("--remote-user USER", "Nom d'utilisateur SSH (défaut: root)") { |user| options[:remote_user] = user }
@@ -19,8 +19,8 @@ OptionParser.new do |opts|
   opts.on("--agent", "Démarrer le mode agent Prometheus (expose /metrics)") { options[:agent] = true }
 end.parse!
 
-# === Méthode d’exécution (locale ou distante) ===
-def run_cmd(cmd, options)
+# === Méthode d'exécution (locale ou distante) ===
+def run_cmd(cmd, options = {})
   if options[:remote_host]
     user = options[:remote_user] || "root"
     key_part = options[:ssh_key] ? "-i #{options[:ssh_key]}" : ""
@@ -31,50 +31,199 @@ def run_cmd(cmd, options)
   end
 end
 
-# === Expressions régulières ===
+# === MODE AGENT PROMETHEUS ===
+if options[:agent]
+  require 'sinatra'
+  require 'sinatra/base'
+
+  class MetricsApp < Sinatra::Base
+    set :bind, '0.0.0.0'
+    set :port, 4567
+    disable :protection
+    set :environment, :production
+
+    get '/metrics' do
+      content_type 'text/plain; charset=utf-8'
+
+      metrics = []
+      
+      # === LOAD AVERAGE ===
+      begin
+        loadavg_raw = `cat /proc/loadavg`.strip.split
+        metrics << "# HELP load_average_1min Load average over 1 minute"
+        metrics << "# TYPE load_average_1min gauge"
+        metrics << "load_average_1min #{loadavg_raw[0]}"
+        
+        metrics << "# HELP load_average_5min Load average over 5 minutes"
+        metrics << "# TYPE load_average_5min gauge"
+        metrics << "load_average_5min #{loadavg_raw[1]}"
+        
+        metrics << "# HELP load_average_15min Load average over 15 minutes"
+        metrics << "# TYPE load_average_15min gauge"
+        metrics << "load_average_15min #{loadavg_raw[2]}"
+      rescue => e
+        STDERR.puts "Error collecting load average: #{e.message}"
+      end
+
+      # === UPTIME ===
+      begin
+        uptime = `awk '{print $1}' /proc/uptime`.strip.to_f
+        metrics << "# HELP uptime_seconds System uptime in seconds"
+        metrics << "# TYPE uptime_seconds counter"
+        metrics << "uptime_seconds #{uptime}"
+      rescue => e
+        STDERR.puts "Error collecting uptime: #{e.message}"
+      end
+
+      # === MEMORY ===
+      begin
+        meminfo = {}
+        File.readlines('/proc/meminfo').each do |line|
+          if line =~ /^(\w+):\s+(\d+)/
+            meminfo[$1] = $2.to_i * 1024 # Convertir en bytes
+          end
+        end
+        
+        mem_total = meminfo['MemTotal'] || 0
+        mem_available = meminfo['MemAvailable'] || 0
+        mem_used = mem_total - mem_available
+        mem_usage_percent = mem_total > 0 ? (mem_used.to_f / mem_total * 100) : 0
+        
+        metrics << "# HELP memory_total_bytes Total memory in bytes"
+        metrics << "# TYPE memory_total_bytes gauge"
+        metrics << "memory_total_bytes #{mem_total}"
+        
+        metrics << "# HELP memory_used_bytes Used memory in bytes"
+        metrics << "# TYPE memory_used_bytes gauge"
+        metrics << "memory_used_bytes #{mem_used}"
+        
+        metrics << "# HELP memory_available_bytes Available memory in bytes"
+        metrics << "# TYPE memory_available_bytes gauge"
+        metrics << "memory_available_bytes #{mem_available}"
+        
+        metrics << "# HELP memory_usage_percent Memory usage percentage"
+        metrics << "# TYPE memory_usage_percent gauge"
+        metrics << "memory_usage_percent #{mem_usage_percent.round(2)}"
+      rescue => e
+        STDERR.puts "Error collecting memory: #{e.message}"
+      end
+
+      # === SWAP ===
+      begin
+        swap_total = meminfo['SwapTotal'] || 0
+        swap_free = meminfo['SwapFree'] || 0
+        swap_used = swap_total - swap_free
+        
+        metrics << "# HELP swap_total_bytes Total swap in bytes"
+        metrics << "# TYPE swap_total_bytes gauge"
+        metrics << "swap_total_bytes #{swap_total}"
+        
+        metrics << "# HELP swap_used_bytes Used swap in bytes"
+        metrics << "# TYPE swap_used_bytes gauge"
+        metrics << "swap_used_bytes #{swap_used}"
+      rescue => e
+        STDERR.puts "Error collecting swap: #{e.message}"
+      end
+
+      # === CPU ===
+      begin
+        cpu_stat = `cat /proc/stat | grep '^cpu '`.strip.split
+        cpu_total = cpu_stat[1..].map(&:to_i).sum
+        cpu_idle = cpu_stat[4].to_i
+        cpu_usage = cpu_total > 0 ? ((cpu_total - cpu_idle).to_f / cpu_total * 100) : 0
+        
+        metrics << "# HELP cpu_usage_percent CPU usage percentage"
+        metrics << "# TYPE cpu_usage_percent gauge"
+        metrics << "cpu_usage_percent #{cpu_usage.round(2)}"
+      rescue => e
+        STDERR.puts "Error collecting CPU: #{e.message}"
+      end
+
+      # === DISK USAGE ===
+      begin
+        df_output = `df -B1 /`.strip.split("\n")[1]
+        if df_output
+          parts = df_output.split
+          disk_total = parts[1].to_i
+          disk_used = parts[2].to_i
+          disk_available = parts[3].to_i
+          disk_usage_percent = parts[4].to_s.gsub('%', '').to_f
+          
+          metrics << "# HELP disk_total_bytes Total disk space in bytes"
+          metrics << "# TYPE disk_total_bytes gauge"
+          metrics << "disk_total_bytes #{disk_total}"
+          
+          metrics << "# HELP disk_used_bytes Used disk space in bytes"
+          metrics << "# TYPE disk_used_bytes gauge"
+          metrics << "disk_used_bytes #{disk_used}"
+          
+          metrics << "# HELP disk_available_bytes Available disk space in bytes"
+          metrics << "# TYPE disk_available_bytes gauge"
+          metrics << "disk_available_bytes #{disk_available}"
+          
+          metrics << "# HELP disk_usage_percent Disk usage percentage"
+          metrics << "# TYPE disk_usage_percent gauge"
+          metrics << "disk_usage_percent #{disk_usage_percent}"
+        end
+      rescue => e
+        STDERR.puts "Error collecting disk: #{e.message}"
+      end
+
+      # === SERVICES STATUS ===
+      begin
+        services = %w[sshd cron docker apache2 nginx mysql postfix]
+        metrics << "# HELP service_status Service status (1=active, 0=inactive)"
+        metrics << "# TYPE service_status gauge"
+        
+        services.each do |srv|
+          status = `systemctl is-active #{srv} 2>/dev/null`.strip
+          value = status == "active" ? 1 : 0
+          metrics << "service_status{service=\"#{srv}\"} #{value}"
+        end
+      rescue => e
+        STDERR.puts "Error collecting services: #{e.message}"
+      end
+
+      # === NETWORK CONNECTIONS ===
+      begin
+        tcp_connections = `ss -tan | grep ESTAB | wc -l`.strip.to_i
+        metrics << "# HELP tcp_connections_total Total established TCP connections"
+        metrics << "# TYPE tcp_connections_total gauge"
+        metrics << "tcp_connections_total #{tcp_connections}"
+      rescue => e
+        STDERR.puts "Error collecting network: #{e.message}"
+      end
+
+      # === PROCESSES ===
+      begin
+        total_processes = `ps aux | wc -l`.strip.to_i - 1
+        metrics << "# HELP processes_total Total number of processes"
+        metrics << "# TYPE processes_total gauge"
+        metrics << "processes_total #{total_processes}"
+      rescue => e
+        STDERR.puts "Error collecting processes: #{e.message}"
+      end
+
+      metrics.join("\n") + "\n"
+    end
+
+    get '/health' do
+      content_type 'application/json'
+      { status: 'healthy', timestamp: Time.now.to_i }.to_json
+    end
+  end
+
+  puts "🚀 Agent Prometheus démarré sur http://0.0.0.0:4567"
+  puts "📊 Métriques disponibles sur http://0.0.0.0:4567/metrics"
+  MetricsApp.run!
+  exit 0
+end
+
+# === MODE AUDIT NORMAL (reste de votre code existant) ===
 regex_utilisateur_co = /^([^:]+):[^:]*:(\d+):\d+:[^:]*:[^:]*:[^:]*$/
 regex_processus_consommateur_traffic_reseau = /(\S+)\s+\S+\s+\S+\s+([\d.:]+)\s+([\d.:]+)\s+users:\(\("([^"]+)",pid=(\d+)/
 regex_processus_consommateurs = /^(\S+)\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+(.*)$/
 
-# === MODE AGENT PROMETHEUS (si --agent est passé en option) ===
-if options[:agent]
-  require 'sinatra'
-
-  set :bind, '0.0.0.0'
-  set :port, 4567
-  # Désactive les protections Rack qui bloquent Prometheus (403)
-  disable :protection
-  set :protection, false
-  set :environment, :production
-
-  get '/metrics' do
-    content_type 'text/plain'
-
-    loadavg_raw = run_cmd("cat /proc/loadavg", options).split
-    uptime = run_cmd("awk '{print $1}' /proc/uptime", options).to_f
-
-    metrics = []
-    metrics << "load_average_1min #{loadavg_raw[0]}"
-    metrics << "load_average_5min #{loadavg_raw[1]}"
-    metrics << "load_average_15min #{loadavg_raw[2]}"
-    metrics << "uptime_seconds #{uptime}"
-
-    %w[sshd cron docker apache2 nginx mysql postfix].each do |srv|
-      st = run_cmd("systemctl is-active #{srv} 2>/dev/null", options)
-      val = st.include?("active") ? 1 : 0
-      metrics << "service_status{service=\"#{srv}\"} #{val}"
-    end
-
-    metrics.join("\n") + "\n"
-  end
-
-  # Lance le serveur et empêche le reste du fichier de s'exécuter
-  Sinatra::Application.run!
-  exit 0
-end
-
-
-# === Collecte des informations ===
 nom_machine = run_cmd("hostname", options)
 distrib = run_cmd("lsb_release -d 2>/dev/null || cat /etc/*release | head -n 1", options).sub(/^Description:\s*/, '')
 v_noyau = run_cmd("uname -r", options)
@@ -84,7 +233,6 @@ m_charge = "1 min: #{loadavg_raw[0]}, 5 min: #{loadavg_raw[1]}, 15 min: #{loadav
 memoire = run_cmd("free -h", options)
 swap_dispo_utilise = run_cmd("free -h | grep -i swap", options)
 
-# === Interfaces réseau ===
 interfaces_raw = run_cmd("ls /sys/class/net", options).split
 inter_reseau = interfaces_raw.map do |iface|
   next if iface == "lo"
@@ -93,7 +241,6 @@ inter_reseau = interfaces_raw.map do |iface|
   { interface: iface, mac: mac.empty? ? "N/A" : mac, ip: ip.strip }
 end.compact
 
-# === Utilisateurs humains ===
 passwd_content = run_cmd("cat /etc/passwd", options).split("\n")
 utilisateur_humains = passwd_content.map do |line|
   if line =~ regex_utilisateur_co
@@ -103,10 +250,8 @@ utilisateur_humains = passwd_content.map do |line|
 end.compact
 utilisateurs_co = run_cmd("who", options)
 
-# === Espace disque ===
 espaceDisque = run_cmd("df -h", options)
 
-# === Processus ===
 processus_consomateurs = []
 run_cmd("ps aux --sort=-%cpu | head -n 11", options).lines.drop(1).each do |line|
   if line =~ regex_processus_consommateurs
@@ -123,13 +268,11 @@ run_cmd("ss -tunap | head -n 20", options).lines.each do |line|
   end
 end
 
-# === Statut des services clés ===
 services = %w[sshd cron docker apache2 nginx mysql postfix]
 status_service_cle = services.map do |srv|
   [srv, run_cmd("systemctl is-active #{srv} 2>/dev/null", options)]
 end.to_h
 
-# === Résultats de l’audit ===
 audit = {
   "Nom de la machine" => nom_machine,
   "Distribution" => distrib,
@@ -147,14 +290,10 @@ audit = {
   "Services clés" => status_service_cle
 }
 
-# === Export ou affichage ===
 if options[:json]
   File.open(options[:json], "w") { |f| f.write(JSON.pretty_generate(audit)) }
   puts "Résultats sauvegardés dans #{options[:json]}"
 else
-
-
-  # Couleurs pour le terminal
   RESET = "\e[0m"
   GRAS = "\e[1m"
   BLEU = "\e[36m"
@@ -163,13 +302,11 @@ else
   ROUGE = "\e[31m"
   JAUNE = "\e[33m"
 
-  # Méthode pour afficher les titres de section dans un format stylisé
   def section_titre(titre)
     puts "\n#{BLEU}#{GRAS}> #{titre}#{RESET}"
     puts "  #{GRIS}#{"─" * 56}#{RESET}"
   end
 
-  # Méthode pour déterminer la couleur du statut d'un service
   def statut_couleur(statut)
     case statut
     when /active|actif/i then VERT
@@ -178,140 +315,26 @@ else
     end
   end
 
-  # Affichage du rapport d'audit dans le terminal - style ASCII art
-  puts "\n"
-  puts "  ██████╗  █████╗  ██████╗███████╗"
+  puts "\n  ██████╗  █████╗  ██████╗███████╗"
   puts "  ██╔══██╗██╔══██╗██╔════╝██╔════╝"
   puts "  ██║  ██║███████║██║     ███████╗"
   puts "  ██║  ██║██╔══██║██║     ╚════██║"
   puts "  ██████╔╝██║  ██║╚██████╗███████║"
-  puts "  ╚═════╝ ╚═╝  ╚═╝ ╚═════╝╚══════╝"
-  puts ""
+  puts "  ╚═════╝ ╚═╝  ╚═╝ ╚═════╝╚══════╝\n"
   puts "  " + "─" * 58
   puts "       DACS AUDIT - SYSTÈME LINUX"
   puts "       #{nom_machine.upcase} - #{Time.now.strftime('%d %B %Y')}"
-  puts "  " + "─" * 58
-  puts "\n"
+  puts "  " + "─" * 58 + "\n"
 
-  # informations générales
   section_titre("INFORMATIONS GÉNÉRALES")
   puts "  Distribution      : #{distrib}"
   puts "  Version noyau     : #{v_noyau}"
   puts "  Uptime            : #{uptime}"
-
-  # charge moyenne avec code couleur selon la valeur
+  
   charge_values = [loadavg_raw[0].to_f, loadavg_raw[1].to_f, loadavg_raw[2].to_f]
   charge_color = charge_values.max > 4 ? ROUGE : (charge_values.max > 2 ? JAUNE : VERT)
   puts "  Charge moyenne    : #{charge_color}#{m_charge}#{RESET}"
 
-  # Mémoire et Swap avec code couleur selon l'utilisation
-  section_titre("MÉMOIRE ET SWAP")
-  memoire_lines = memoire.split("\n")
-
-  puts "  #{GRIS}               Total       Utilisé     Disponible#{RESET}"
-  puts "  #{GRIS}#{"─" * 56}#{RESET}"
-
-  if memoire_lines[1]
-    mem_data = memoire_lines[1].split
-    mem_pct = (mem_data[2].to_f / mem_data[1].to_f * 100) rescue 0
-    mem_color = mem_pct > 80 ? ROUGE : (mem_pct > 60 ? JAUNE : VERT)
-    puts "  #{mem_color}RAM#{RESET}       : #{mem_data[1].rjust(8)}  │  #{mem_data[2].rjust(8)}  │  #{mem_data[6].rjust(10)}"
-  end
-
-  if memoire_lines[2]
-    swap_data = memoire_lines[2].split
-    swap_total = swap_data[1]
-    swap_utilise = swap_data[2]
-    swap_color = swap_utilise.to_f > 0 ? JAUNE : VERT
-    puts "  #{swap_color}Swap#{RESET}      : #{swap_total.rjust(8)}  │  #{swap_utilise.rjust(8)}  │  #{swap_data[3].rjust(10)}"
-  end
-
-  # Interfaces réseau, adresses IP et état UP/DOWN
-  section_titre("INTERFACES RÉSEAU")
-  if inter_reseau.empty?
-    puts "  #{GRIS}[Aucune interface réseau détectée]#{RESET}"
-  else
-    inter_reseau.each do |iface|
-      # Récupérer l'état de l'interface (UP/DOWN)
-      etat = `cat /sys/class/net/#{iface[:interface]}/operstate 2>/dev/null`.strip.upcase
-      etat_color = etat == "UP" ? VERT : ROUGE
-      etat_display = etat.empty? ? "UNKNOWN" : etat
-
-      # Statut IP
-      ip_status = iface[:ip].empty? ? ROUGE : VERT
-      ip_display = iface[:ip].empty? ? 'Non configurée' : iface[:ip]
-
-      puts "  - #{iface[:interface].ljust(10)} #{etat_color}[#{etat_display}]#{RESET}"
-      puts "    ├─ MAC  : #{GRIS}#{iface[:mac]}#{RESET}"
-      puts "    └─ IPv4 : #{ip_status}#{ip_display}#{RESET}"
-      puts ""
-    end
-  end
-
-  # Utilisateurs humains (uid >= 1000)
-  section_titre("UTILISATEURS")
-  if utilisateur_humains.empty?
-    puts "  #{GRIS}[Aucun utilisateur humain trouvé]#{RESET}"
-  else
-    utilisateur_humains.each { |u| puts "  - #{u}" }
-  end
-
-  # Utilisateurs connectés
-  section_titre("UTILISATEURS CONNECTÉS")
-  if utilisateurs_co.empty?
-    puts "  #{GRIS}[Aucun utilisateur connecté]#{RESET}"
-  else
-    utilisateurs_co.each_line { |ligne| puts "  #{ligne.chomp}" }
-  end
-
-  # Espace disque par partition avec code couleur selon l'utilisation
-  section_titre("ESPACE DISQUE PAR PARTITION")
-  espaceDisque.each_line.with_index do |ligne, idx|
-    if idx == 0
-      # En-tête
-      puts "  #{ligne.chomp}"
-      puts "  #{GRIS}#{"─" * 56}#{RESET}"
-    else
-      # Extraire le pourcentage d'utilisation
-      if ligne =~ /(\d+)%/
-        usage = $1.to_i
-        color = usage > 80 ? ROUGE : (usage > 60 ? JAUNE : RESET)
-        puts "  #{color}#{ligne.chomp}#{RESET}"
-      else
-        puts "  #{ligne.chomp}"
-      end
-    end
-  end
-
-  # Processus consommateurs de CPU et de mémoire
-  section_titre("PROCESSUS CONSOMMATEURS (CPU/MEM)")
-  if processus_consomateurs.empty?
-    puts "  #{GRIS}[Aucun processus détecté]#{RESET}"
-  else
-    processus_consomateurs.each do |p|
-      cmd = p[:cmd].length > 80 ? p[:cmd][0..77] + "..." : p[:cmd]
-      cpu_color = p[:cpu] > 50 ? ROUGE : (p[:cpu] > 20 ? JAUNE : RESET)
-      mem_color = p[:mem] > 10 ? ROUGE : (p[:mem] > 5 ? JAUNE : RESET)
-
-      puts "  - #{p[:user].ljust(12)} PID: #{p[:pid].to_s.rjust(6)}  │  CPU: #{cpu_color}#{p[:cpu].to_s.rjust(5)}%#{RESET}  │  MEM: #{mem_color}#{p[:mem].to_s.rjust(5)}%#{RESET}"
-      puts "    └─ #{GRIS}#{cmd}#{RESET}"
-      puts ""
-    end
-  end
-
-  # Processus consommateurs de trafic réseau
-  section_titre("PROCESSUS CONSOMMATEURS (RÉSEAU)")
-  if processus_consomateurs_traffic_reseau.empty?
-    puts "  #{GRIS}[Aucun processus consommateur de trafic réseau détecté]#{RESET}"
-  else
-    processus_consomateurs_traffic_reseau.each do |p|
-      etat_color = p[:etat] == "ESTAB" ? VERT : GRIS
-      puts "  - #{p[:process].ljust(20)} PID: #{p[:pid].to_s.rjust(6)}  #{etat_color}[#{p[:etat]}]#{RESET}"
-      puts "    └─ #{GRIS}#{p[:source]} → #{p[:destination]}#{RESET}"
-    end
-  end
-
-  # Statut des services clés
   section_titre("SERVICES CLÉS")
   status_service_cle.each do |s, st|
     couleur = statut_couleur(st)
@@ -319,36 +342,7 @@ else
     puts "  #{statut} #{s.ljust(25)} : #{couleur}#{st}#{RESET}"
   end
 
-  puts "\n" + "  " + "═" * 70
-  puts "    Audit terminé avec succès, merci de faire confiance à DACS AUDIT"
+  puts "\n  " + "═" * 70
+  puts "    Audit terminé avec succès"
   puts "  " + "═" * 70 + "\n"
 end
-
-# === EXPORTER METRIQUES POUR PROMETHEUS ===
-require 'sinatra'
-
-set :bind, '0.0.0.0'
-set :port, 4567
-
-get '/metrics' do
-  content_type 'text/plain'
-
-  loadavg_raw = `cat /proc/loadavg`.split
-  uptime = `awk '{print $1}' /proc/uptime`.to_f
-
-  metrics = []
-  metrics << "load_average_1min #{loadavg_raw[0]}"
-  metrics << "load_average_5min #{loadavg_raw[1]}"
-  metrics << "load_average_15min #{loadavg_raw[2]}"
-  metrics << "uptime_seconds #{uptime}"
-
-  # Exemple avec statut des services clés
-  %w[sshd cron docker apache2 nginx mysql postfix].each do |srv|
-    st = `systemctl is-active #{srv} 2>/dev/null`.strip
-    val = st.include?("active") ? 1 : 0
-    metrics << "service_status{service=\"#{srv}\"} #{val}"
-  end
-
-  metrics.join("\n") + "\n"
-end
-

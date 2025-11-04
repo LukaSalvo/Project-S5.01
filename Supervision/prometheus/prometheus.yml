@@ -1,0 +1,24 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'agent1'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['agent1:4567']
+        labels:
+          host: 'agent1'
+          location: 'server-prod-1'
+
+  - job_name: 'agent2'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['agent2:4567']
+        labels:
+          host: 'agent2'
+          location: 'server-prod-2'
