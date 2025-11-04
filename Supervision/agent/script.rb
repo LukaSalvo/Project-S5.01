@@ -213,8 +213,8 @@ if options[:agent]
     end
   end
 
-  puts "🚀 Agent Prometheus démarré sur http://0.0.0.0:4567"
-  puts "📊 Métriques disponibles sur http://0.0.0.0:4567/metrics"
+  puts " Agent Prometheus démarré sur http://0.0.0.0:4567"
+  puts " Métriques disponibles sur http://0.0.0.0:4567/metrics"
   MetricsApp.run!
   exit 0
 end
