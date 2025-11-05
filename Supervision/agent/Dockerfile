@@ -2,20 +2,20 @@ FROM ruby:3.0-slim
 
 WORKDIR /app
 
-# Installation des dépendances systèmes nécessaires
+# Installation des dépendances système
 RUN apt-get update && apt-get install -y \
     build-essential \
     sysstat \
     procps \
     && rm -rf /var/lib/apt/lists/*
 
-# Installation des gems nécessaires
-RUN gem install sinatra sinatra-contrib json
+# Installation de TOUTES les gems nécessaires
+RUN gem install sinatra sinatra-contrib json rackup puma webrick
 
-# Copie du script dans le conteneur
+# Copie du script
 COPY script.rb .
 
-# Exposition du port de l'agent
+# Exposition du port
 EXPOSE 4567
 
 # Démarrage du script en mode agent

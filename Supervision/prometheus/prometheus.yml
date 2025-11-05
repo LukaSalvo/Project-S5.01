@@ -10,7 +10,7 @@ scrape_configs:
   - job_name: 'agent1'
     scrape_interval: 10s
     static_configs:
-      - targets: ['agent1:4567']
+      - targets: ['dacs_agent1:4567']  # Utilisation du nom du conteneur
         labels:
           host: 'agent1'
           location: 'server-prod-1'
@@ -18,7 +18,7 @@ scrape_configs:
   - job_name: 'agent2'
     scrape_interval: 10s
     static_configs:
-      - targets: ['agent2:4567']
+      - targets: ['dacs_agent2:4567']  # Utilisation du nom du conteneur
         labels:
           host: 'agent2'
           location: 'server-prod-2'

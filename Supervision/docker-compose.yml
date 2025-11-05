@@ -5,55 +5,47 @@ services:
     build: 
       context: ./agent
     container_name: dacs_agent1
-    hostname: agent1
+    networks:
+      - monitoring
     ports:
       - "4567:4567"
     environment:
       - AGENT_NAME=agent1
       - AGENT_LOCATION=server-prod-1
     restart: unless-stopped
-    networks:
-      - monitoring
 
   agent2:
     build: 
       context: ./agent
     container_name: dacs_agent2
-    hostname: agent2
+    networks:
+      - monitoring
     ports:
       - "4568:4567"
     environment:
       - AGENT_NAME=agent2
       - AGENT_LOCATION=server-prod-2
     restart: unless-stopped
-    networks:
-      - monitoring
 
   prometheus:
     image: prom/prometheus:latest
     container_name: dacs_prometheus
-    hostname: prometheus
+    networks:
+      - monitoring
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--storage.tsdb.retention.time=30d'
-      - '--web.enable-lifecycle'
     ports:
       - "9090:9090"
     restart: unless-stopped
-    networks:
-      - monitoring
-    depends_on:
-      - agent1
-      - agent2
 
   grafana:
     image: grafana/grafana:latest
     container_name: dacs_grafana
-    hostname: grafana
+    networks:
+      - monitoring
     volumes:
       - ./grafana/dashboards:/var/lib/grafana/dashboards
       - ./grafana/provisioning:/etc/grafana/provisioning
@@ -61,15 +53,9 @@ services:
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/system_dashboard.json
-      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
     ports:
       - "3000:3000"
     restart: unless-stopped
-    networks:
-      - monitoring
-    depends_on:
-      - prometheus
 
 networks:
   monitoring:
