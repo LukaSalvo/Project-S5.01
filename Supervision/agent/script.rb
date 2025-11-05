@@ -33,12 +33,16 @@ end
 
 # === MODE AGENT PROMETHEUS ===
 if options[:agent]
+
   require 'sinatra'
   require 'sinatra/base'
 
+  port = ENV['PORT'] ? ENV['PORT'].to_i : 4567  # 🔥 ici : configurable
+  puts "Démarrage de l'agent sur le port #{port}..."
+
   class MetricsApp < Sinatra::Base
     set :bind, '0.0.0.0'
-    set :port, 4567
+    set :port, ENV['PORT'] ? ENV['PORT'].to_i : 4567
     disable :protection
     set :environment, :production
 

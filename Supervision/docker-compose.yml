@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   agent1:
     build: 
@@ -12,6 +10,7 @@ services:
     environment:
       - AGENT_NAME=agent1
       - AGENT_LOCATION=server-prod-1
+      - PORT=4567
     restart: unless-stopped
 
   agent2:
@@ -21,10 +20,11 @@ services:
     networks:
       - monitoring
     ports:
-      - "4568:4567"
+      - "4568:4568"
     environment:
       - AGENT_NAME=agent2
       - AGENT_LOCATION=server-prod-2
+      - PORT=4568
     restart: unless-stopped
 
   prometheus:
