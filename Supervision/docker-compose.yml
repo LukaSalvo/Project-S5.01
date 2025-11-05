@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-
   agent1:
-    build: ./agent
+    build: 
+      context: ./agent
     container_name: dacs_agent1
     hostname: agent1
     ports:
@@ -16,7 +16,8 @@ services:
       - monitoring
 
   agent2:
-    build: ./agent
+    build: 
+      context: ./agent
     container_name: dacs_agent2
     hostname: agent2
     ports:
@@ -27,6 +28,7 @@ services:
     restart: unless-stopped
     networks:
       - monitoring
+
   prometheus:
     image: prom/prometheus:latest
     container_name: dacs_prometheus
@@ -48,10 +50,31 @@ services:
       - agent1
       - agent2
 
+  grafana:
+    image: grafana/grafana:latest
+    container_name: dacs_grafana
+    hostname: grafana
+    volumes:
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/system_dashboard.json
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+
 networks:
   monitoring:
     driver: bridge
 
 volumes:
   prometheus_data:
-    driver: local
+  grafana_data:

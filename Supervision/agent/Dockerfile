@@ -1,25 +1,22 @@
-FROM ruby:3.2-slim
+FROM ruby:3.0-slim
 
-# Installation des outils de compilation + dépendances système
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    procps \
-    iproute2 \
-    net-tools \
-    && rm -rf /var/lib/apt/lists/*
-
-# Installation des gems Ruby (avec rackup)
-RUN gem install sinatra rackup puma --no-document
-
-# Configuration du répertoire de travail
 WORKDIR /app
 
-# Copie du script
-COPY script.rb /app/script.rb
-RUN chmod +x /app/script.rb
+# Installation des dépendances systèmes nécessaires
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    sysstat \
+    procps \
+    && rm -rf /var/lib/apt/lists/*
 
-# Exposition du port
+# Installation des gems nécessaires
+RUN gem install sinatra sinatra-contrib json
+
+# Copie du script dans le conteneur
+COPY script.rb .
+
+# Exposition du port de l'agent
 EXPOSE 4567
 
-# Démarrage en mode agent
-CMD ["ruby", "/app/script.rb", "--agent"]
+# Démarrage du script en mode agent
+CMD ["ruby", "script.rb", "--agent"]
