@@ -1,30 +1,40 @@
 services:
   agent1:
-    build: 
+    build:
       context: ./agent
     container_name: dacs_agent1
     networks:
       - monitoring
-    ports:
-      - "4567:4567"
+    volumes:
+      - /home/salvo4u/.ssh/id_audit:/root/.ssh/id_audit:ro
     environment:
       - AGENT_NAME=agent1
-      - AGENT_LOCATION=server-prod-1
+      - AGENT_LOCATION=iutnc-503-04
       - PORT=4567
+      - REMOTE_HOST=${REMOTE_HOST_AGENT1}
+      - REMOTE_USER=${REMOTE_USER}
+      - SSH_KEY_PATH=${SSH_KEY_PATH}
+    ports:
+      - "4567:4567"
     restart: unless-stopped
 
   agent2:
-    build: 
+    build:
       context: ./agent
     container_name: dacs_agent2
     networks:
       - monitoring
-    ports:
-      - "4568:4568"
+    volumes:
+      - /home/salvo4u/.ssh/id_audit:/root/.ssh/id_audit:ro
     environment:
       - AGENT_NAME=agent2
-      - AGENT_LOCATION=server-prod-2
+      - AGENT_LOCATION=iutnc-503-04-backup
       - PORT=4568
+      - REMOTE_HOST=${REMOTE_HOST_AGENT2}
+      - REMOTE_USER=${REMOTE_USER}
+      - SSH_KEY_PATH=${SSH_KEY_PATH}
+    ports:
+      - "4568:4568"
     restart: unless-stopped
 
   prometheus:

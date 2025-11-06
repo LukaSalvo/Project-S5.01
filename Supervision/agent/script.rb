@@ -6,6 +6,7 @@ require 'optparse'
 =begin
     Script d'audit système Linux - DACS AUDIT
     Version compatible Prometheus : mode agent avec endpoint /metrics
+    Supporte l'audit distant via SSH
 =end
 
 # === Options du script ===
@@ -19,13 +20,26 @@ OptionParser.new do |opts|
   opts.on("--agent", "Démarrer le mode agent Prometheus (expose /metrics)") { options[:agent] = true }
 end.parse!
 
+# === Configuration SSH depuis les variables d'environnement (pour mode agent) ===
+if options[:agent]
+  options[:remote_host] = ENV['REMOTE_HOST'] if ENV['REMOTE_HOST']
+  options[:remote_user] = ENV['REMOTE_USER'] || 'root'
+  options[:ssh_key] = ENV['SSH_KEY_PATH'] || '/root/.ssh/id_audit'
+end
+
 # === Méthode d'exécution (locale ou distante) ===
 def run_cmd(cmd, options = {})
   if options[:remote_host]
     user = options[:remote_user] || "root"
     key_part = options[:ssh_key] ? "-i #{options[:ssh_key]}" : ""
-    ssh_cmd = "ssh -o StrictHostKeyChecking=no #{key_part} #{user}@#{options[:remote_host]} \"#{cmd}\""
-    return `#{ssh_cmd}`.strip
+    ssh_cmd = "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 #{key_part} #{user}@#{options[:remote_host]} \"#{cmd}\""
+    result = `#{ssh_cmd} 2>&1`.strip
+    if $?.exitstatus != 0
+      STDERR.puts "SSH Error executing: #{cmd}"
+      STDERR.puts "Result: #{result}"
+      return ""
+    end
+    return result
   else
     return `#{cmd}`.strip
   end
@@ -37,8 +51,33 @@ if options[:agent]
   require 'sinatra'
   require 'sinatra/base'
 
-  port = ENV['PORT'] ? ENV['PORT'].to_i : 4567  # 🔥 ici : configurable
-  puts "Démarrage de l'agent sur le port #{port}..."
+  port = ENV['PORT'] ? ENV['PORT'].to_i : 4567
+  
+  # Vérification de la configuration SSH
+  if options[:remote_host]
+    puts "🔧 Agent configuré en mode SSH distant"
+    puts "   Host: #{options[:remote_host]}"
+    puts "   User: #{options[:remote_user]}"
+    puts "   Key:  #{options[:ssh_key]}"
+    
+    # Test de connexion SSH
+    test_result = run_cmd("echo 'SSH OK'", options)
+    if test_result.include?("SSH OK")
+      puts "✅ Connexion SSH testée avec succès"
+    else
+      puts "❌ ERREUR: Impossible de se connecter via SSH"
+      puts "   Vérifiez la clé SSH et les permissions"
+      exit 1
+    end
+  else
+    puts "⚠️  Agent en mode LOCAL (audit du conteneur lui-même)"
+    puts "   Pour auditer une machine distante, configurez:"
+    puts "   - REMOTE_HOST=<ip>"
+    puts "   - REMOTE_USER=<user>"
+    puts "   - SSH_KEY_PATH=<path>"
+  end
+  
+  puts "🚀 Démarrage de l'agent sur le port #{port}..."
 
   class MetricsApp < Sinatra::Base
     set :bind, '0.0.0.0'
@@ -46,14 +85,24 @@ if options[:agent]
     disable :protection
     set :environment, :production
 
+    # Configuration SSH partagée (passée via settings)
+    set :ssh_options, {}
+
     get '/metrics' do
       content_type 'text/plain; charset=utf-8'
+
+      # Récupération des options SSH depuis les settings
+      ssh_opts = settings.ssh_options
 
       metrics = []
       
       # === LOAD AVERAGE ===
       begin
         loadavg_raw = `cat /proc/loadavg`.strip.split
+        if ssh_opts[:remote_host]
+          loadavg_raw = run_cmd("cat /proc/loadavg", ssh_opts).split
+        end
+        
         metrics << "# HELP load_average_1min Load average over 1 minute"
         metrics << "# TYPE load_average_1min gauge"
         metrics << "load_average_1min #{loadavg_raw[0]}"
@@ -71,7 +120,12 @@ if options[:agent]
 
       # === UPTIME ===
       begin
-        uptime = `awk '{print $1}' /proc/uptime`.strip.to_f
+        if ssh_opts[:remote_host]
+          uptime = run_cmd("awk '{print $1}' /proc/uptime", ssh_opts).to_f
+        else
+          uptime = `awk '{print $1}' /proc/uptime`.strip.to_f
+        end
+        
         metrics << "# HELP uptime_seconds System uptime in seconds"
         metrics << "# TYPE uptime_seconds counter"
         metrics << "uptime_seconds #{uptime}"
@@ -82,9 +136,19 @@ if options[:agent]
       # === MEMORY ===
       begin
         meminfo = {}
-        File.readlines('/proc/meminfo').each do |line|
-          if line =~ /^(\w+):\s+(\d+)/
-            meminfo[$1] = $2.to_i * 1024 # Convertir en bytes
+        
+        if ssh_opts[:remote_host]
+          meminfo_output = run_cmd("cat /proc/meminfo", ssh_opts)
+          meminfo_output.split("\n").each do |line|
+            if line =~ /^(\w+):\s+(\d+)/
+              meminfo[$1] = $2.to_i * 1024
+            end
+          end
+        else
+          File.readlines('/proc/meminfo').each do |line|
+            if line =~ /^(\w+):\s+(\d+)/
+              meminfo[$1] = $2.to_i * 1024
+            end
           end
         end
         
@@ -131,7 +195,12 @@ if options[:agent]
 
       # === CPU ===
       begin
-        cpu_stat = `cat /proc/stat | grep '^cpu '`.strip.split
+        if ssh_opts[:remote_host]
+          cpu_stat = run_cmd("cat /proc/stat | grep '^cpu '", ssh_opts).split
+        else
+          cpu_stat = `cat /proc/stat | grep '^cpu '`.strip.split
+        end
+        
         cpu_total = cpu_stat[1..].map(&:to_i).sum
         cpu_idle = cpu_stat[4].to_i
         cpu_usage = cpu_total > 0 ? ((cpu_total - cpu_idle).to_f / cpu_total * 100) : 0
@@ -145,7 +214,12 @@ if options[:agent]
 
       # === DISK USAGE ===
       begin
-        df_output = `df -B1 /`.strip.split("\n")[1]
+        if ssh_opts[:remote_host]
+          df_output = run_cmd("df -B1 /", ssh_opts).split("\n")[1]
+        else
+          df_output = `df -B1 /`.strip.split("\n")[1]
+        end
+        
         if df_output
           parts = df_output.split
           disk_total = parts[1].to_i
@@ -180,7 +254,11 @@ if options[:agent]
         metrics << "# TYPE service_status gauge"
         
         services.each do |srv|
-          status = `systemctl is-active #{srv} 2>/dev/null`.strip
+          if ssh_opts[:remote_host]
+            status = run_cmd("systemctl is-active #{srv} 2>/dev/null", ssh_opts)
+          else
+            status = `systemctl is-active #{srv} 2>/dev/null`.strip
+          end
           value = status == "active" ? 1 : 0
           metrics << "service_status{service=\"#{srv}\"} #{value}"
         end
@@ -190,7 +268,12 @@ if options[:agent]
 
       # === NETWORK CONNECTIONS ===
       begin
-        tcp_connections = `ss -tan | grep ESTAB | wc -l`.strip.to_i
+        if ssh_opts[:remote_host]
+          tcp_connections = run_cmd("ss -tan | grep ESTAB | wc -l", ssh_opts).to_i
+        else
+          tcp_connections = `ss -tan | grep ESTAB | wc -l`.strip.to_i
+        end
+        
         metrics << "# HELP tcp_connections_total Total established TCP connections"
         metrics << "# TYPE tcp_connections_total gauge"
         metrics << "tcp_connections_total #{tcp_connections}"
@@ -200,7 +283,12 @@ if options[:agent]
 
       # === PROCESSES ===
       begin
-        total_processes = `ps aux | wc -l`.strip.to_i - 1
+        if ssh_opts[:remote_host]
+          total_processes = run_cmd("ps aux | wc -l", ssh_opts).to_i - 1
+        else
+          total_processes = `ps aux | wc -l`.strip.to_i - 1
+        end
+        
         metrics << "# HELP processes_total Total number of processes"
         metrics << "# TYPE processes_total gauge"
         metrics << "processes_total #{total_processes}"
@@ -217,13 +305,16 @@ if options[:agent]
     end
   end
 
-  puts " Agent Prometheus démarré sur http://0.0.0.0:4567"
-  puts " Métriques disponibles sur http://0.0.0.0:4567/metrics"
+  # Passage des options SSH à l'application Sinatra
+  MetricsApp.set :ssh_options, options
+  
+  puts "✅ Agent Prometheus démarré sur http://0.0.0.0:#{port}"
+  puts "📊 Métriques disponibles sur http://0.0.0.0:#{port}/metrics"
   MetricsApp.run!
   exit 0
 end
 
-# === MODE AUDIT NORMAL (reste de votre code existant) ===
+# === MODE AUDIT NORMAL (code existant inchangé) ===
 regex_utilisateur_co = /^([^:]+):[^:]*:(\d+):\d+:[^:]*:[^:]*:[^:]*$/
 regex_processus_consommateur_traffic_reseau = /(\S+)\s+\S+\s+\S+\s+([\d.:]+)\s+([\d.:]+)\s+users:\(\("([^"]+)",pid=(\d+)/
 regex_processus_consommateurs = /^(\S+)\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+(.*)$/

@@ -10,15 +10,19 @@ scrape_configs:
   - job_name: 'agent1'
     scrape_interval: 10s
     static_configs:
-      - targets: ['dacs_agent1:4567']
-        labels:
-          host: 'agent1'
-          location: 'server-prod-1'
+      - targets: ['agent1:4567']
+    relabel_configs:
+      - target_label: host
+        replacement: agent1
+      - target_label: location
+        replacement: iutnc-503-04
 
   - job_name: 'agent2'
     scrape_interval: 10s
     static_configs:
-      - targets: ['dacs_agent2:4568']
-        labels:
-          host: 'agent2'
-          location: 'server-prod-2'
+      - targets: ['agent2:4568']
+    relabel_configs:
+      - target_label: host
+        replacement: agent2
+      - target_label: location
+        replacement: iutnc-503-04-backup
