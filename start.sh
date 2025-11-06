@@ -1,9 +1,11 @@
 #!/bin/bash
 set -e
 
-echo "Détection de l'IP de la machine hôte..."
+echo "Détection de l'utilisateur courant..."
+CURRENT_USER=$(whoami)
+echo "Utilisateur détecté : $CURRENT_USER"
 
-# Méthode universelle (Linux, WSL, VM, serveur)
+echo "Détection de l'IP de la machine hôte..."
 HOST_IP=$(ip route get 1.1.1.1 | awk '{print $7}' | head -n1)
 
 if [ -z "$HOST_IP" ]; then
@@ -17,8 +19,8 @@ echo "IP hôte détectée : $HOST_IP"
 cat > Supervision/.env << EOF
 REMOTE_HOST_AGENT1=$HOST_IP
 REMOTE_HOST_AGENT2=$HOST_IP
-REMOTE_USER=salvo4u
-SSH_KEY_PATH=/root/.ssh/id_audit
+REMOTE_USER=$CURRENT_USER
+SSH_KEY_PATH=/home/$CURRENT_USER/.ssh/id_audit
 EOF
 
 echo "Fichier Supervision/.env créé"
