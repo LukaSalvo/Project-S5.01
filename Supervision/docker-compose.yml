@@ -1,3 +1,4 @@
+services:
   agent1:
     build:
       context: ./agent
@@ -5,14 +6,14 @@
     networks:
       - monitoring
     volumes:
-      - ${HOST_USER_HOME}/.ssh/id_audit:/root/.ssh/id_audit:ro    
+      - ${HOST_SSH_KEY}:/root/.ssh/id_audit:ro
     environment:
       - AGENT_NAME=agent1
       - AGENT_LOCATION=iutnc-503-04
       - PORT=4567
       - REMOTE_HOST=${REMOTE_HOST_AGENT1}
       - REMOTE_USER=${REMOTE_USER}
-      - SSH_KEY_PATH=${SSH_KEY_PATH}
+      - SSH_KEY_PATH=/root/.ssh/id_audit
     ports:
       - "4567:4567"
     restart: unless-stopped
@@ -24,14 +25,52 @@
     networks:
       - monitoring
     volumes:
-      - ${HOST_USER_HOME}/.ssh/id_audit:/root/.ssh/id_audit:ro   
+      - ${HOST_SSH_KEY}:/root/.ssh/id_audit:ro
     environment:
       - AGENT_NAME=agent2
       - AGENT_LOCATION=iutnc-503-04-backup
       - PORT=4568
       - REMOTE_HOST=${REMOTE_HOST_AGENT2}
       - REMOTE_USER=${REMOTE_USER}
-      - SSH_KEY_PATH=${SSH_KEY_PATH}
+      - SSH_KEY_PATH=/root/.ssh/id_audit
     ports:
       - "4568:4568"
     restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: dacs_prometheus
+    networks:
+      - monitoring
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: dacs_grafana
+    networks:
+      - monitoring
+    volumes:
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+networks:
+  monitoring:
+    driver: bridge
+
+volumes:
+  prometheus_data:
+  grafana_data:
