@@ -1,7 +1,7 @@
 # DACS AUDIT — Guide Client SSH
 
-**Auteurs :** Amin Belalia, Luka Salvo, Léo Candido Della Mora
-**BUT Informatique 3A – Parcours DACS**  
+**Auteurs :** Amin Belalia, Luka Salvo, Léo Candido Della Mora  
+**BUT Informatique 3A – Parcours DACS**
 
 ## Objectif
 
@@ -20,7 +20,7 @@ Le conteneur embarque uniquement **Ruby**, et exécute le script en se connectan
 
 ---
 
-##  2. Génération et configuration de la clé SSH
+## 2. Génération et configuration de la clé SSH
 
 ### 2.1. Générer une clé dédiée à l’audit
 Sur ta machine cliente :
@@ -95,16 +95,10 @@ nmap -p 22 ***.**.*.*
 cd ~/Documents/BUT_informatique_DACS/3_annee/SAE/Project-S5.01
 ```
 
----
-
-### Lancer le conteneur : 
-
-```bash 
+### Construire l'image (si besoin)
+```bash
 docker build -t dacs-audit:latest .
 ```
-
-C'est une commande essentielle car elle va lancer le conteneur et donc le build. 
-
 
 ### Audit distant avec affichage direct dans le terminal
 ```bash
@@ -153,9 +147,75 @@ cat audit_distant.json
 
 ---
 
+## 6. Usage — Partie Supervision (Prometheus / Grafana / agents)
 
-## 7. Résumé rapide
+Cette section explique comment démarrer et utiliser la partie supervision fournie dans le dossier `Supervision/` : elle contient une stack Docker (Prometheus + Grafana + 2 agents Ruby exposant /metrics) et des dashboards Grafana pré-provisionnés.
 
+### Prérequis
+- Docker & Docker Compose (v2) installés.
+- Ports libres : 4567, 4568, 9090, 3000.
+- Clé SSH créée et autorisée sur la ou les machines cibles si tu veux utiliser l'option d'audit distant.
+
+### Fichiers importants
+- Supervision/docker-compose.yml — définition des services (agent1, agent2, prometheus, grafana).
+- Supervision/agent/script.rb — code de l'agent (expose /metrics, /health ; support SSH distant).
+- Supervision/prometheus/prometheus.yml — jobs Prometheus (agent1, agent2).
+- Supervision/grafana/* — provisioning des datasources et dashboards.
+
+### Démarrage automatique (script fourni)
+Le dossier `Supervision/` contient un script d'orchestration (`Supervision/script.sh`) qui :
+- prépare l'environnement (.env),
+- monte/copier la clé si nécessaire,
+- relance la stack : `docker compose down --remove-orphans -v` puis `docker compose up -d --build`,
+- effectue des vérifications de base sur les endpoints /metrics.
+
+Pour l'utiliser :
+```bash
+cd Supervision
+chmod +x script.sh
+./script.sh
+```
+
+### Démarrage manuel
+Si tu préfères lancer manuellement :
+```bash
+cd Supervision
+docker compose down -v
+docker compose up -d --build
+```
+
+### Vérifications après démarrage
+- Agent1 metrics : http://localhost:4567/metrics
+- Agent2 metrics : http://localhost:4568/metrics
+- Prometheus UI : http://localhost:9090
+- Grafana UI : http://localhost:3000 (admin password défini via docker-compose : `admin`)
+
+Exemple de vérification CLI :
+```bash
+curl -s http://localhost:4567/metrics | head -n 20
+curl -s http://localhost:4568/metrics | head -n 20
+```
+
+### Remarques de sécurité et bonnes pratiques
+- La clé SSH est montée dans les containers en lecture seule ; en contexte réel, privilégier les secrets (Docker secrets / Vault) et éviter de garder des clés privées accessibles.
+- Vérifier les permissions (600) de la clé privée montée.
+- Ajuster les variables du `.env` (ports, hôtes) plutôt que modifier le docker-compose si tu veux déployer sur un autre réseau.
+
+### Dépannage rapide
+- Si `/metrics` renvoie une erreur : inspecte les logs des agents :
+  ```bash
+  docker logs dacs_agent1
+  docker logs dacs_agent2
+  ```
+- Si Grafana n'apparaît pas : vérifier `docker ps` et `docker logs dacs_grafana`.
+- Si SSH échoue depuis l'agent : tester la connexion depuis l'hôte avec la même clé :
+  ```bash
+  ssh -i /chemin/vers/id_audit user@REMOTE_HOST
+  ```
+
+---
+
+## 7. Résumé rapide (client SSH + supervision)
 | Étape | Commande | Description |
 |--------|-----------|-------------|
 | Générer la clé SSH | `ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_audit` | Crée une clé dédiée à l’audit |
@@ -163,12 +223,11 @@ cat audit_distant.json
 | Tester la connexion | `ssh -i ~/.ssh/id_audit user@IP` | Vérifie la configuration |
 | Audit terminal | `docker run ... dacs-audit:latest ...` | Audit en direct dans le terminal |
 | Audit JSON | `docker run ... --json audit_distant.json` | Sauvegarde du résultat en fichier |
+| Démarrer supervision (script) | `cd Supervision && ./script.sh` | Déploie Prometheus/Grafana/agents |
+| Vérifier /metrics | `curl http://localhost:4567/metrics` | S’assurer que les agents exposent des métriques |
 
 ---
 
 ## Conclusion
 
-Le **client SSH DACS AUDIT** permet d’effectuer des audits distants sans installer Ruby ni dépendances sur la machine cible.  
-L’ensemble des commandes s’exécute **depuis un conteneur Docker léger**, garantissant portabilité et sécurité.
-
----
+Le **client SSH DACS AUDIT** permet d’effectuer des audits distants sans installer Ruby ni dépendances sur la machine cible. La partie **Supervision** fournie permet de centraliser et visualiser ces métriques via Prometheus et Grafana, pour faciliter l’analyse et la démonstration.
