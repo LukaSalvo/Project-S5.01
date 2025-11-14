@@ -55,7 +55,7 @@ if options[:agent]
   
   # Vérification de la configuration SSH
   if options[:remote_host]
-    puts "🔧 Agent configuré en mode SSH distant"
+    puts " Agent configuré en mode SSH distant"
     puts "   Host: #{options[:remote_host]}"
     puts "   User: #{options[:remote_user]}"
     puts "   Key:  #{options[:ssh_key]}"
@@ -63,21 +63,21 @@ if options[:agent]
     # Test de connexion SSH
     test_result = run_cmd("echo 'SSH OK'", options)
     if test_result.include?("SSH OK")
-      puts "✅ Connexion SSH testée avec succès"
+      puts " Connexion SSH testée avec succès"
     else
-      puts "❌ ERREUR: Impossible de se connecter via SSH"
+      puts " ERREUR: Impossible de se connecter via SSH"
       puts "   Vérifiez la clé SSH et les permissions"
       exit 1
     end
   else
-    puts "⚠️  Agent en mode LOCAL (audit du conteneur lui-même)"
+    puts "  Agent en mode LOCAL (audit du conteneur lui-même)"
     puts "   Pour auditer une machine distante, configurez:"
     puts "   - REMOTE_HOST=<ip>"
     puts "   - REMOTE_USER=<user>"
     puts "   - SSH_KEY_PATH=<path>"
   end
   
-  puts "🚀 Démarrage de l'agent sur le port #{port}..."
+  puts " Démarrage de l'agent sur le port #{port}..."
 
   class MetricsApp < Sinatra::Base
     set :bind, '0.0.0.0'
@@ -308,8 +308,8 @@ if options[:agent]
   # Passage des options SSH à l'application Sinatra
   MetricsApp.set :ssh_options, options
   
-  puts "✅ Agent Prometheus démarré sur http://0.0.0.0:#{port}"
-  puts "📊 Métriques disponibles sur http://0.0.0.0:#{port}/metrics"
+  puts " Agent Prometheus démarré sur http://0.0.0.0:#{port}"
+  puts " Métriques disponibles sur http://0.0.0.0:#{port}/metrics"
   MetricsApp.run!
   exit 0
 end
@@ -410,7 +410,7 @@ else
     end
   end
 
-  puts "\n  ██████╗  █████╗  ██████╗███████╗"
+  puts "\n██████╗  █████╗  ██████╗███████╗"
   puts "  ██╔══██╗██╔══██╗██╔════╝██╔════╝"
   puts "  ██║  ██║███████║██║     ███████╗"
   puts "  ██║  ██║██╔══██║██║     ╚════██║"
